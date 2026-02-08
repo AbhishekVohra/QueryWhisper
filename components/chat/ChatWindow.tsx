@@ -12,8 +12,9 @@ type Message =
   | { role: "user"; content: string }
   | {
       role: "assistant";
-      explanation: string;
-      sql: string;
+      explanation?: string;
+      sql?: string;
+      analysis?: string;
     };
 
 type QueryResult = {
@@ -63,6 +64,10 @@ export default function ChatWindow({
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
 
+  const [mode, setMode] = useState<"query" | "analysis">(
+    "query"
+  );
+
   const [history, setHistory] = useState<
     ChatHistoryItem[]
   >([]);
@@ -98,14 +103,16 @@ export default function ChatWindow({
     ]);
   }, [restoreItem]);
 
-  async function sendMessage() {
+  async function sendQuery() {
     if (!input.trim() || loading) return;
 
+    setMode("query");
     setMessages((prev) => [
       ...prev,
       { role: "user", content: input },
     ]);
 
+    const question = input;
     setInput("");
     setLoading(true);
     setExecError(null);
@@ -118,7 +125,7 @@ export default function ChatWindow({
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          question: input,
+          question,
           schema,
           metadata,
           modelConfig,
@@ -130,16 +137,12 @@ export default function ChatWindow({
       const item: ChatHistoryItem = {
         id: crypto.randomUUID(),
         timestamp: Date.now(),
-        question: input,
+        question,
         explanation: data.explanation || "",
         sql: data.sql || "",
       };
 
-      const updated = [item, ...history].slice(
-        0,
-        50
-      );
-
+      const updated = [item, ...history].slice(0, 50);
       setHistory(updated);
       saveHistory(updated);
       onHistoryUpdate(updated);
@@ -159,9 +162,7 @@ export default function ChatWindow({
 
   async function runQuery(sql: string) {
     if (!connection) {
-      setExecError(
-        "No database connection available."
-      );
+      setExecError("No database connection available.");
       return;
     }
 
@@ -185,11 +186,61 @@ export default function ChatWindow({
       if (!res.ok) throw new Error(data.error);
 
       setResult(data);
+      setMode("analysis"); // 🔑 analysis now unlocked
     } catch (err: any) {
       setExecError(err.message);
       setResult(null);
     } finally {
       setExecuting(false);
+    }
+  }
+
+  async function analyzeResult() {
+    if (!result || loading) return;
+
+    setLoading(true);
+
+    const rowsForAnalysis =
+      result.rows.length <= 100
+        ? result.rows
+        : [
+            ...result.rows.slice(0, 50),
+            ...result.rows.slice(-50),
+          ];
+
+    try {
+      const res = await fetch("/api/analysis", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          question:
+            input ||
+            "Provide key insights from this data.",
+          result: {
+            columns: result.columns,
+            rowCount: result.rowCount,
+            rows: rowsForAnalysis,
+          },
+          metadata,
+          modelConfig,
+        }),
+      });
+
+      const data = await res.json();
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          analysis: data.analysis,
+        },
+      ]);
+
+      setInput("");
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -208,10 +259,12 @@ export default function ChatWindow({
               key={i}
               className="bg-gray-100 p-4 rounded space-y-3"
             >
-              <div>
-                <strong>Explanation:</strong>
-                <div>{msg.explanation}</div>
-              </div>
+              {msg.explanation && (
+                <div>
+                  <strong>Explanation:</strong>
+                  <div>{msg.explanation}</div>
+                </div>
+              )}
 
               {msg.sql && (
                 <>
@@ -220,15 +273,22 @@ export default function ChatWindow({
                   </pre>
 
                   <button
-                    onClick={() => runQuery(msg.sql)}
+                    onClick={() => runQuery(msg.sql!)}
                     disabled={executing}
                     className="bg-green-600 text-white px-3 py-1 rounded"
                   >
-                    {executing
-                      ? "Running…"
-                      : "Run Query"}
+                    {executing ? "Running…" : "Run Query"}
                   </button>
                 </>
+              )}
+
+              {msg.analysis && (
+                <div>
+                  <strong>Analysis:</strong>
+                  <div className="whitespace-pre-wrap">
+                    {msg.analysis}
+                  </div>
+                </div>
               )}
             </div>
           )
@@ -237,72 +297,87 @@ export default function ChatWindow({
         {loading && <ThinkingIndicator />}
 
         {execError && (
-          <div className="text-red-600">
-            {execError}
-          </div>
+          <div className="text-red-600">{execError}</div>
         )}
 
         {result && (
-          <div className="mt-6 border rounded bg-white">
-            <div className="px-4 py-2 border-b bg-gray-50 text-sm">
-              Rows returned:{" "}
-              <strong>{result.rowCount}</strong>
-            </div>
+          <>
+            <div className="mt-6 border rounded bg-white">
+              <div className="px-4 py-2 border-b bg-gray-50 text-sm">
+                Rows returned:{" "}
+                <strong>{result.rowCount}</strong>
+              </div>
 
-            <div className="overflow-auto max-h-[400px]">
-              <table className="min-w-full text-sm border-collapse">
-                <thead className="sticky top-0 bg-gray-200">
-                  <tr>
-                    {result.columns.map((col) => (
-                      <th
-                        key={col}
-                        className="px-3 py-2 text-left border-b"
-                      >
-                        {col}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {result.rows.map((row, idx) => (
-                    <tr
-                      key={idx}
-                      className="odd:bg-gray-50"
-                    >
+              <div className="overflow-auto max-h-[400px]">
+                <table className="min-w-full text-sm border-collapse">
+                  <thead className="sticky top-0 bg-gray-200">
+                    <tr>
                       {result.columns.map((col) => (
-                        <td
+                        <th
                           key={col}
-                          className="px-3 py-2 border-b"
+                          className="px-3 py-2 text-left border-b"
                         >
-                          {row[col] === null
-                            ? "null"
-                            : String(row[col])}
-                        </td>
+                          {col}
+                        </th>
                       ))}
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {result.rows.map((row, idx) => (
+                      <tr
+                        key={idx}
+                        className="odd:bg-gray-50"
+                      >
+                        {result.columns.map((col) => (
+                          <td
+                            key={col}
+                            className="px-3 py-2 border-b"
+                          >
+                            {row[col] === null
+                              ? "null"
+                              : String(row[col])}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
-          </div>
+          </>
         )}
       </div>
 
+      {/* INPUT BAR WITH EXPLICIT MODE BUTTONS */}
       <div className="border-t p-4 flex gap-2">
         <input
           className="flex-1 p-3 border rounded text-black"
-          placeholder="Ask a question about your data…"
+          placeholder={
+            mode === "analysis"
+              ? "Ask about this data…"
+              : "Ask a new query…"
+          }
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) =>
-            e.key === "Enter" && sendMessage()
-          }
         />
+
         <button
-          onClick={sendMessage}
+          onClick={sendQuery}
           className="bg-blue-600 text-white px-4 rounded"
         >
-          Send
+          New Query
+        </button>
+
+        <button
+          onClick={analyzeResult}
+          disabled={!result}
+          className={`px-4 rounded text-white ${
+            result
+              ? "bg-purple-600"
+              : "bg-gray-400 cursor-not-allowed"
+          }`}
+        >
+          Analysis
         </button>
       </div>
     </div>
