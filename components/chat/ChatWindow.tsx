@@ -2,6 +2,11 @@
 
 import { useEffect, useState } from "react";
 import { ModelConfig } from "@/lib/llm/router";
+import {
+  loadHistory,
+  saveHistory,
+} from "@/lib/history/storage";
+import { ChatHistoryItem } from "@/lib/history/types";
 
 type Message =
   | { role: "user"; content: string }
@@ -22,23 +27,25 @@ type ChatWindowProps = {
   metadata: string;
   connection: any;
   modelConfig: ModelConfig;
+
+  onHistoryUpdate: (
+    history: ChatHistoryItem[]
+  ) => void;
+  restoreItem: ChatHistoryItem | null;
 };
 
 function ThinkingIndicator() {
   const [dots, setDots] = useState("");
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      setDots((prev) =>
-        prev.length >= 3 ? "" : prev + "."
-      );
+    const id = setInterval(() => {
+      setDots((d) => (d.length >= 3 ? "" : d + "."));
     }, 500);
-
-    return () => clearInterval(interval);
+    return () => clearInterval(id);
   }, []);
 
   return (
-    <div className="text-gray-600 italic mt-2">
+    <div className="italic text-gray-600">
       QueryWhisper is thinking{dots}
     </div>
   );
@@ -49,10 +56,16 @@ export default function ChatWindow({
   metadata,
   connection,
   modelConfig,
+  onHistoryUpdate,
+  restoreItem,
 }: ChatWindowProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+
+  const [history, setHistory] = useState<
+    ChatHistoryItem[]
+  >([]);
 
   const [result, setResult] =
     useState<QueryResult | null>(null);
@@ -61,21 +74,32 @@ export default function ChatWindow({
   const [executing, setExecuting] =
     useState(false);
 
+  // Load history on mount
+  useEffect(() => {
+    const h = loadHistory();
+    setHistory(h);
+    onHistoryUpdate(h);
+  }, []);
+
+  // Restore from sidebar click
+  useEffect(() => {
+    if (!restoreItem) return;
+
+    setMessages([
+      {
+        role: "user",
+        content: restoreItem.question,
+      },
+      {
+        role: "assistant",
+        explanation: restoreItem.explanation,
+        sql: restoreItem.sql,
+      },
+    ]);
+  }, [restoreItem]);
+
   async function sendMessage() {
     if (!input.trim() || loading) return;
-
-    if (!schema) {
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          explanation:
-            "Please connect to a database first.",
-          sql: "",
-        },
-      ]);
-      return;
-    }
 
     setMessages((prev) => [
       ...prev,
@@ -84,8 +108,8 @@ export default function ChatWindow({
 
     setInput("");
     setLoading(true);
-    setResult(null);
     setExecError(null);
+    setResult(null);
 
     try {
       const res = await fetch("/api/llm/chat", {
@@ -103,12 +127,29 @@ export default function ChatWindow({
 
       const data = await res.json();
 
+      const item: ChatHistoryItem = {
+        id: crypto.randomUUID(),
+        timestamp: Date.now(),
+        question: input,
+        explanation: data.explanation || "",
+        sql: data.sql || "",
+      };
+
+      const updated = [item, ...history].slice(
+        0,
+        50
+      );
+
+      setHistory(updated);
+      saveHistory(updated);
+      onHistoryUpdate(updated);
+
       setMessages((prev) => [
         ...prev,
         {
           role: "assistant",
-          explanation: data.explanation || "",
-          sql: data.sql || "",
+          explanation: item.explanation,
+          sql: item.sql,
         },
       ]);
     } finally {
@@ -141,10 +182,7 @@ export default function ChatWindow({
       });
 
       const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data.error);
-      }
+      if (!res.ok) throw new Error(data.error);
 
       setResult(data);
     } catch (err: any) {
@@ -166,26 +204,25 @@ export default function ChatWindow({
               </div>
             </div>
           ) : (
-            <div key={i} className="space-y-3">
-              {msg.explanation && (
-                <div className="bg-gray-100 p-4 rounded">
-                  <strong>Explanation:</strong>
-                  <div className="mt-1">
-                    {msg.explanation}
-                  </div>
-                </div>
-              )}
+            <div
+              key={i}
+              className="bg-gray-100 p-4 rounded space-y-3"
+            >
+              <div>
+                <strong>Explanation:</strong>
+                <div>{msg.explanation}</div>
+              </div>
 
               {msg.sql && (
                 <>
-                  <pre className="bg-black text-green-400 p-4 rounded text-sm overflow-x-auto">
+                  <pre className="bg-black text-green-400 p-3 rounded text-sm overflow-x-auto">
                     {msg.sql}
                   </pre>
 
                   <button
                     onClick={() => runQuery(msg.sql)}
                     disabled={executing}
-                    className="bg-green-600 text-white px-4 py-2 rounded"
+                    className="bg-green-600 text-white px-3 py-1 rounded"
                   >
                     {executing
                       ? "Running…"
@@ -206,8 +243,8 @@ export default function ChatWindow({
         )}
 
         {result && (
-          <div className="mt-8 border rounded bg-white">
-            <div className="px-4 py-2 border-b text-sm bg-gray-50">
+          <div className="mt-6 border rounded bg-white">
+            <div className="px-4 py-2 border-b bg-gray-50 text-sm">
               Rows returned:{" "}
               <strong>{result.rowCount}</strong>
             </div>
