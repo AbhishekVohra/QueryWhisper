@@ -1,32 +1,40 @@
 "use client";
 
-import React, { useState } from "react";
+import { useState } from "react";
 
 import DbConnectionForm from "./DbConnectionForm";
 import SchemaExplorer from "./SchemaExplorer";
 import MetadataEditor from "./MetadataEditor";
 import ModelSelector from "./ModelSelector";
+import { ModelConfig } from "@/lib/llm/router";
 
-export type SidebarProps = {
+type SidebarProps = {
   schema: any;
   onSchemaChange: (schema: any) => void;
   metadata: string;
   onMetadataChange: (text: string) => void;
   onConnection: (connection: any) => void;
+
+  modelConfig: ModelConfig;
+  onModelChange: (config: ModelConfig) => void;
 };
 
-const Sidebar: React.FC<SidebarProps> = ({
+export default function Sidebar({
   schema,
   onSchemaChange,
   metadata,
   onMetadataChange,
   onConnection,
-}) => {
+  modelConfig,
+  onModelChange,
+}: SidebarProps) {
   const [connected, setConnected] = useState(false);
 
   return (
     <div className="w-80 border-r bg-white p-4 space-y-6 overflow-y-auto text-black">
-      <h1 className="text-xl font-semibold">QueryWhisper</h1>
+      <h1 className="text-xl font-semibold">
+        QueryWhisper
+      </h1>
 
       <DbConnectionForm
         onConnected={(connection) => {
@@ -45,9 +53,10 @@ const Sidebar: React.FC<SidebarProps> = ({
         onChange={onMetadataChange}
       />
 
-      <ModelSelector />
+      <ModelSelector
+        value={modelConfig}
+        onChange={onModelChange}
+      />
     </div>
   );
-};
-
-export default Sidebar;
+}

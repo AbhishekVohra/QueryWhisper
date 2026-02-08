@@ -4,24 +4,36 @@ import { NextResponse } from "next/server";
 import { Pool, FieldDef } from "pg";
 
 import { validateSQL } from "@/lib/sql/validate";
+import { validateSQLAgainstSchema } from "@/lib/sql/schemaValidate";
 
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { sql, connection } = body;
+    const { sql, connection, schema } = body;
 
-    if (!sql || !connection) {
+    if (!sql || !connection || !schema) {
       return NextResponse.json(
-        { error: "Missing SQL or connection" },
+        { error: "Missing SQL, schema, or connection" },
         { status: 400 }
       );
     }
 
-    const validation = validateSQL(sql);
-
-    if (!validation.valid) {
+    // 1. Generic SQL safety
+    const basicValidation = validateSQL(sql);
+    if (!basicValidation.valid) {
       return NextResponse.json(
-        { error: validation.reason },
+        { error: basicValidation.reason },
+        { status: 400 }
+      );
+    }
+
+    // 2. Schema-aware validation
+    const schemaValidation =
+      validateSQLAgainstSchema(sql, schema);
+
+    if (!schemaValidation.valid) {
+      return NextResponse.json(
+        { error: schemaValidation.reason },
         { status: 400 }
       );
     }

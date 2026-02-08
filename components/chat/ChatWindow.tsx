@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { ModelConfig } from "@/lib/llm/router";
 
 type Message =
   | { role: "user"; content: string }
@@ -20,20 +21,45 @@ type ChatWindowProps = {
   schema: any;
   metadata: string;
   connection: any;
+  modelConfig: ModelConfig;
 };
+
+function ThinkingIndicator() {
+  const [dots, setDots] = useState("");
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setDots((prev) =>
+        prev.length >= 3 ? "" : prev + "."
+      );
+    }, 500);
+
+    return () => clearInterval(interval);
+  }, []);
+
+  return (
+    <div className="text-gray-600 italic mt-2">
+      QueryWhisper is thinking{dots}
+    </div>
+  );
+}
 
 export default function ChatWindow({
   schema,
   metadata,
   connection,
+  modelConfig,
 }: ChatWindowProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const [result, setResult] = useState<QueryResult | null>(null);
-  const [execError, setExecError] = useState<string | null>(null);
-  const [executing, setExecuting] = useState(false);
+  const [result, setResult] =
+    useState<QueryResult | null>(null);
+  const [execError, setExecError] =
+    useState<string | null>(null);
+  const [executing, setExecuting] =
+    useState(false);
 
   async function sendMessage() {
     if (!input.trim() || loading) return;
@@ -43,14 +69,18 @@ export default function ChatWindow({
         ...prev,
         {
           role: "assistant",
-          explanation: "Please connect to a database first.",
+          explanation:
+            "Please connect to a database first.",
           sql: "",
         },
       ]);
       return;
     }
 
-    setMessages((prev) => [...prev, { role: "user", content: input }]);
+    setMessages((prev) => [
+      ...prev,
+      { role: "user", content: input },
+    ]);
 
     setInput("");
     setLoading(true);
@@ -60,11 +90,14 @@ export default function ChatWindow({
     try {
       const res = await fetch("/api/llm/chat", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify({
           question: input,
           schema,
           metadata,
+          modelConfig,
         }),
       });
 
@@ -85,7 +118,9 @@ export default function ChatWindow({
 
   async function runQuery(sql: string) {
     if (!connection) {
-      setExecError("No database connection available.");
+      setExecError(
+        "No database connection available."
+      );
       return;
     }
 
@@ -95,10 +130,13 @@ export default function ChatWindow({
     try {
       const res = await fetch("/api/db/execute", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify({
           sql,
           connection,
+          schema,
         }),
       });
 
@@ -132,7 +170,9 @@ export default function ChatWindow({
               {msg.explanation && (
                 <div className="bg-gray-100 p-4 rounded">
                   <strong>Explanation:</strong>
-                  <div className="mt-1">{msg.explanation}</div>
+                  <div className="mt-1">
+                    {msg.explanation}
+                  </div>
                 </div>
               )}
 
@@ -147,54 +187,59 @@ export default function ChatWindow({
                     disabled={executing}
                     className="bg-green-600 text-white px-4 py-2 rounded"
                   >
-                    {executing ? "Running…" : "Run Query"}
+                    {executing
+                      ? "Running…"
+                      : "Run Query"}
                   </button>
                 </>
               )}
             </div>
-          ),
+          )
         )}
 
-        {loading && (
-          <div className="text-gray-600">QueryWhisper is thinking…</div>
-        )}
+        {loading && <ThinkingIndicator />}
 
-        {execError && <div className="text-red-600">{execError}</div>}
+        {execError && (
+          <div className="text-red-600">
+            {execError}
+          </div>
+        )}
 
         {result && (
           <div className="mt-8 border rounded bg-white">
             <div className="px-4 py-2 border-b text-sm bg-gray-50">
-              Rows returned: <strong>{result.rowCount}</strong>
-              {result.rowCount > 100 && (
-                <span className="text-gray-500 ml-2">(showing first 100)</span>
-              )}
+              Rows returned:{" "}
+              <strong>{result.rowCount}</strong>
             </div>
 
             <div className="overflow-auto max-h-[400px]">
               <table className="min-w-full text-sm border-collapse">
-                <thead className="sticky top-0 bg-gray-200 z-10">
+                <thead className="sticky top-0 bg-gray-200">
                   <tr>
                     {result.columns.map((col) => (
-                      <th key={col} className="px-3 py-2 text-left border-b">
+                      <th
+                        key={col}
+                        className="px-3 py-2 text-left border-b"
+                      >
                         {col}
                       </th>
                     ))}
                   </tr>
                 </thead>
-
                 <tbody>
-                  {result.rows.slice(0, 100).map((row, idx) => (
-                    <tr key={idx} className="odd:bg-gray-50">
+                  {result.rows.map((row, idx) => (
+                    <tr
+                      key={idx}
+                      className="odd:bg-gray-50"
+                    >
                       {result.columns.map((col) => (
                         <td
                           key={col}
-                          className="px-3 py-2 border-b whitespace-nowrap"
+                          className="px-3 py-2 border-b"
                         >
-                          {row[col] === null ? (
-                            <span className="text-gray-400 italic">null</span>
-                          ) : (
-                            String(row[col])
-                          )}
+                          {row[col] === null
+                            ? "null"
+                            : String(row[col])}
                         </td>
                       ))}
                     </tr>
@@ -212,7 +257,9 @@ export default function ChatWindow({
           placeholder="Ask a question about your data…"
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && sendMessage()}
+          onKeyDown={(e) =>
+            e.key === "Enter" && sendMessage()
+          }
         />
         <button
           onClick={sendMessage}
