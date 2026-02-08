@@ -43,18 +43,14 @@ export default function ChatWindow({
         ...prev,
         {
           role: "assistant",
-          explanation:
-            "Please connect to a database first.",
+          explanation: "Please connect to a database first.",
           sql: "",
         },
       ]);
       return;
     }
 
-    setMessages((prev) => [
-      ...prev,
-      { role: "user", content: input },
-    ]);
+    setMessages((prev) => [...prev, { role: "user", content: input }]);
 
     setInput("");
     setLoading(true);
@@ -89,9 +85,7 @@ export default function ChatWindow({
 
   async function runQuery(sql: string) {
     if (!connection) {
-      setExecError(
-        "No database connection available."
-      );
+      setExecError("No database connection available.");
       return;
     }
 
@@ -138,9 +132,7 @@ export default function ChatWindow({
               {msg.explanation && (
                 <div className="bg-gray-100 p-4 rounded">
                   <strong>Explanation:</strong>
-                  <div className="mt-1">
-                    {msg.explanation}
-                  </div>
+                  <div className="mt-1">{msg.explanation}</div>
                 </div>
               )}
 
@@ -155,60 +147,54 @@ export default function ChatWindow({
                     disabled={executing}
                     className="bg-green-600 text-white px-4 py-2 rounded"
                   >
-                    {executing
-                      ? "Running…"
-                      : "Run Query"}
+                    {executing ? "Running…" : "Run Query"}
                   </button>
                 </>
               )}
             </div>
-          )
+          ),
         )}
 
         {loading && (
-          <div className="text-gray-600">
-            QueryWhisper is thinking…
-          </div>
+          <div className="text-gray-600">QueryWhisper is thinking…</div>
         )}
 
-        {execError && (
-          <div className="text-red-600">
-            {execError}
-          </div>
-        )}
+        {execError && <div className="text-red-600">{execError}</div>}
 
         {result && (
-          <div className="mt-6">
-            <div className="mb-2 text-sm">
-              Rows: {result.rowCount}
+          <div className="mt-8 border rounded bg-white">
+            <div className="px-4 py-2 border-b text-sm bg-gray-50">
+              Rows returned: <strong>{result.rowCount}</strong>
+              {result.rowCount > 100 && (
+                <span className="text-gray-500 ml-2">(showing first 100)</span>
+              )}
             </div>
 
-            <div className="overflow-x-auto border rounded">
-              <table className="min-w-full text-sm">
-                <thead className="bg-gray-200">
+            <div className="overflow-auto max-h-[400px]">
+              <table className="min-w-full text-sm border-collapse">
+                <thead className="sticky top-0 bg-gray-200 z-10">
                   <tr>
                     {result.columns.map((col) => (
-                      <th
-                        key={col}
-                        className="px-3 py-2 text-left"
-                      >
+                      <th key={col} className="px-3 py-2 text-left border-b">
                         {col}
                       </th>
                     ))}
                   </tr>
                 </thead>
+
                 <tbody>
-                  {result.rows.map((row, idx) => (
-                    <tr
-                      key={idx}
-                      className="border-t"
-                    >
+                  {result.rows.slice(0, 100).map((row, idx) => (
+                    <tr key={idx} className="odd:bg-gray-50">
                       {result.columns.map((col) => (
                         <td
                           key={col}
-                          className="px-3 py-2"
+                          className="px-3 py-2 border-b whitespace-nowrap"
                         >
-                          {String(row[col])}
+                          {row[col] === null ? (
+                            <span className="text-gray-400 italic">null</span>
+                          ) : (
+                            String(row[col])
+                          )}
                         </td>
                       ))}
                     </tr>
@@ -226,9 +212,7 @@ export default function ChatWindow({
           placeholder="Ask a question about your data…"
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) =>
-            e.key === "Enter" && sendMessage()
-          }
+          onKeyDown={(e) => e.key === "Enter" && sendMessage()}
         />
         <button
           onClick={sendMessage}
